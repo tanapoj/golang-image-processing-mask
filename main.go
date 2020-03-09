@@ -10,9 +10,10 @@ import (
 	"image/png"
 	"math"
 	"os"
+	"errors"
 )
 
-const PixelOutOfRange int = -1000
+const PixelOutOfRange = -1000
 
 func Filter(arr interface{}, predicate interface{}) interface{} {
 	return funk.Filter(arr, predicate)
@@ -48,7 +49,14 @@ func filterInRange(arr []int) []int {
 	}).([]int)
 }
 
-func makeMask(matrix [][]int, i int, j int, kernel []int, n int) []int {
+func makeMask(matrix [][]int, i int, j int, kernel []int) ([]int, error) {
+
+	size := math.Sqrt(float64(len(kernel)))
+	n := int(size)
+	if size != math.Trunc(size) || n%2 == 0 {
+		err := errors.New("mask size must be odd number of n^2")
+		return nil, err
+	}
 
 	at := func(i int, j int, c int) int {
 		p := getPixel(matrix, i, j)
@@ -58,7 +66,7 @@ func makeMask(matrix [][]int, i int, j int, kernel []int, n int) []int {
 		return p * kernel[c]
 	}
 
-	r := n / 2
+	r := int(n) / 2
 	mask := make([]int, 0)
 
 	c := 0
@@ -69,7 +77,7 @@ func makeMask(matrix [][]int, i int, j int, kernel []int, n int) []int {
 		}
 	}
 
-	return mask
+	return mask, nil
 }
 
 func getPixel(matrix [][]int, i int, j int) int {
@@ -112,9 +120,9 @@ func applyKernelToImage(input string, output string, kernel func(matrix [][]int,
 		row := pixelAt / b.Dx()
 		col := pixelAt % b.Dx()
 
-		var r int = int(img.Pix[i+0])
-		var g int = int(img.Pix[i+1])
-		var b int = int(img.Pix[i+2])
+		var r = int(img.Pix[i+0])
+		var g = int(img.Pix[i+1])
+		var b = int(img.Pix[i+2])
 		sum := r + g + b
 		avg := sum / 3
 		gs[row][col] = avg
@@ -165,29 +173,44 @@ func BlurKernel(matrix [][]int, i int, j int) int {
 	//	1, 1, 1,
 	//	1, 1, 1,
 	//}
-	size := 5
+	size := 11
 	kernel := Map(make([]int, size*size), func(_ int) int {
 		return 1
 	}).([]int)
-	mask := filterInRange(makeMask(matrix, i, j, kernel, size))
+
+	mask, err := makeMask(matrix, i, j, kernel)
+	if err != nil {
+		os.Exit(1)
+	}
+
+	mask = filterInRange(mask)
 	sum := Sum(mask)
 	return sum / len(mask)
 }
 
 func SharpenKernel(matrix [][]int, i int, j int) int {
-	size := 3
 	kernel := [9]int{
 		-1, -1, -1,
 		-1, 9, -1,
 		-1, -1, -1,
 	}
-	mask := filterInRange(makeMask(matrix, i, j, kernel[:], size))
+	mask, err := makeMask(matrix, i, j, kernel[:])
+	if err != nil {
+		os.Exit(1)
+	}
+
+	mask = filterInRange(mask)
 	sum := Sum(mask)
 	return sum
 }
 
-func thresholding(matrix [][]int, i int, j int, kernel []int, size int, threshold float64) int {
-	mask := filterInRange(makeMask(matrix, i, j, kernel[:], size))
+func thresholding(matrix [][]int, i int, j int, kernel []int, threshold float64) int {
+	mask, err := makeMask(matrix, i, j, kernel)
+	if err != nil {
+		os.Exit(1)
+	}
+
+	mask = filterInRange(mask)
 	sum := Sum(mask)
 	avg := sum / len(mask)
 	if math.Abs(float64(avg)) > threshold {
@@ -198,23 +221,21 @@ func thresholding(matrix [][]int, i int, j int, kernel []int, size int, threshol
 }
 
 func HorizontalEdgeKernel(matrix [][]int, i int, j int, threshold float64) int {
-	size := 3
 	kernel := [9]int{
 		-1, -1, -1,
 		0, 0, 0,
 		1, 1, 1,
 	}
-	return thresholding(matrix, i, j, kernel[:], size, threshold)
+	return thresholding(matrix, i, j, kernel[:], threshold)
 }
 
 func VerticalEdgeKernel(matrix [][]int, i int, j int, threshold float64) int {
-	size := 3
 	kernel := [9]int{
 		-1, 0, 1,
 		-1, 0, 1,
 		-1, 0, 1,
 	}
-	return thresholding(matrix, i, j, kernel[:], size, threshold)
+	return thresholding(matrix, i, j, kernel[:], threshold)
 }
 
 func EdgeDetectionKernel(matrix [][]int, i int, j int, threshold float64) int {
@@ -237,7 +258,7 @@ func main() {
 	applyKernelToImage(input, "output/blur", BlurKernel)
 	applyKernelToImage(input, "output/sharpen", SharpenKernel)
 
-	threshold := 4.0
+	threshold := 8.0
 	applyKernelToImage(input, "output/edge", func(matrix [][]int, i int, j int) int {
 		return EdgeDetectionKernel(matrix, i, j, threshold)
 	})
